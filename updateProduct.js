@@ -170,7 +170,7 @@ async function syncProducts() {
 }
 
 // ======================= RUN =======================
-const SYNC_INTERVAL = 10000; // 30 seconds in milliseconds
+const SYNC_INTERVAL = 20000;
 
 async function runContinuousSync() {
     console.log(`⏰ Starting continuous sync (every ${SYNC_INTERVAL / 1000} seconds)...`);
