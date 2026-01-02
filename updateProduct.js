@@ -1,9 +1,10 @@
 const axios = require("axios");
+require('dotenv').config();
 
 // ======================= CONFIGURATION =======================
-const ERP_API_URL = "https://elhamadfashion.merchantoo.com/api/products";
-const EASY_ORDER_BASE_URL = "https://api.easy-orders.net/api/v1/external-apps";
-const EASY_ORDER_API_KEY = "3542dd35-993d-4de5-8850-de1e9df46938";
+const ERP_API_URL = process.env.ERP_API_URL;
+const EASY_ORDER_BASE_URL = process.env.EASY_ORDER_BASE_URL;
+const EASY_ORDER_API_KEY = process.env.EASY_ORDER_API_KEY;
 
 // ======================= HELPER FUNCTIONS =======================
 
@@ -169,7 +170,7 @@ async function syncProducts() {
 }
 
 // ======================= RUN =======================
-const SYNC_INTERVAL = 30000; // 30 seconds in milliseconds
+const SYNC_INTERVAL = 10000; // 30 seconds in milliseconds
 
 async function runContinuousSync() {
     console.log(`⏰ Starting continuous sync (every ${SYNC_INTERVAL / 1000} seconds)...`);
