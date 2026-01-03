@@ -150,15 +150,15 @@ async function syncProducts() {
 
                 const erpQuantity = Math.max(0, Number(erpVariant.quantity));
                 const erpPrice = Number(erpVariant.price);
-                const erpSalePrice = Number(erpVariant.sale_price);
+                // const erpSalePrice = Number(erpVariant.sale_price);
                 const erpExpense = Number(erpVariant.expense);
 
                 const quantityChanged = erpQuantity !== Number(matchingEasyVariant.quantity);
                 const priceChanged = erpPrice !== Number(matchingEasyVariant.price);
-                const salePriceChanged = erpSalePrice !== Number(matchingEasyVariant.sale_price);
+                // const salePriceChanged = erpSalePrice !== Number(matchingEasyVariant.sale_price);
                 const expenseChanged = erpExpense !== Number(matchingEasyVariant.expense);
 
-                if (quantityChanged || priceChanged || salePriceChanged || expenseChanged) {
+                if (quantityChanged || priceChanged || expenseChanged) {
                     if (!updatesMap[easyProduct.id]) {
                         updatesMap[easyProduct.id] = [];
                     }
@@ -167,7 +167,7 @@ async function syncProducts() {
                         id: matchingEasyVariant.id,
                         quantity: erpQuantity, // 👈 مستحيل يبقى سالب
                         price: erpPrice,
-                        sale_price: erpSalePrice,
+                        // sale_price: erpSalePrice,
                         expense: erpExpense,
                     });
                 }
