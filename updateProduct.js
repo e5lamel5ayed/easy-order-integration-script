@@ -83,10 +83,10 @@ async function updateEasyOrderProduct(productId, variantsData) {
             const variant = product.variants.find(v => v.id === update.id);
             if (!variant) return;
 
-            variant.quantity   = update.quantity;
-            variant.price      = update.price;
+            variant.quantity = update.quantity;
+            variant.price = update.price;
             variant.sale_price = update.sale_price;
-            variant.expense    = update.expense;
+            variant.expense = update.expense;
 
             hasChanges = true;
         });
@@ -148,17 +148,15 @@ async function syncProducts() {
 
                 if (!matchingEasyVariant) continue;
 
-                const quantityChanged =
-                    Number(erpVariant.quantity) !== Number(matchingEasyVariant.quantity);
+                const erpQuantity = Math.max(0, Number(erpVariant.quantity));
+                const erpPrice = Number(erpVariant.price);
+                const erpSalePrice = Number(erpVariant.sale_price);
+                const erpExpense = Number(erpVariant.expense);
 
-                const priceChanged =
-                    Number(erpVariant.price) !== Number(matchingEasyVariant.price);
-
-                const salePriceChanged =
-                    Number(erpVariant.sale_price) !== Number(matchingEasyVariant.sale_price);
-
-                const expenseChanged =
-                    Number(erpVariant.expense) !== Number(matchingEasyVariant.expense);
+                const quantityChanged = erpQuantity !== Number(matchingEasyVariant.quantity);
+                const priceChanged = erpPrice !== Number(matchingEasyVariant.price);
+                const salePriceChanged = erpSalePrice !== Number(matchingEasyVariant.sale_price);
+                const expenseChanged = erpExpense !== Number(matchingEasyVariant.expense);
 
                 if (quantityChanged || priceChanged || salePriceChanged || expenseChanged) {
                     if (!updatesMap[easyProduct.id]) {
@@ -167,12 +165,13 @@ async function syncProducts() {
 
                     updatesMap[easyProduct.id].push({
                         id: matchingEasyVariant.id,
-                        quantity: Number(erpVariant.quantity),
-                        price: Number(erpVariant.price),
-                        sale_price: Number(erpVariant.sale_price),
-                        expense: Number(erpVariant.expense),
+                        quantity: erpQuantity, // 👈 مستحيل يبقى سالب
+                        price: erpPrice,
+                        sale_price: erpSalePrice,
+                        expense: erpExpense,
                     });
                 }
+
             }
         }
     }
