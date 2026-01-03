@@ -45,11 +45,7 @@ async function fetchEasyOrderProducts() {
             );
 
             const products = response.data?.data || [];
-
-            if (!Array.isArray(products) || products.length === 0) {
-                console.log("✅ No more products to fetch.");
-                break;
-            }
+            if (!products.length) break;
 
             allProducts.push(...products);
             page++;
@@ -75,7 +71,7 @@ async function updateEasyOrderProduct(productId, variantsData) {
         );
 
         const product = response.data;
-        if (!product?.variants || variantsData.length === 0) return;
+        if (!product?.variants || !variantsData.length) return;
 
         let hasChanges = false;
 
@@ -83,10 +79,9 @@ async function updateEasyOrderProduct(productId, variantsData) {
             const variant = product.variants.find(v => v.id === update.id);
             if (!variant) return;
 
-            variant.quantity = update.quantity;
-            variant.price = update.price;
-            // variant.sale_price = update.sale_price;
-            variant.expense = update.expense;
+            variant.quantity   = update.quantity;
+            variant.sale_price = update.sale_price; // 👈 ERP price
+            variant.expense    = update.expense;
 
             hasChanges = true;
         });
@@ -120,10 +115,7 @@ async function syncProducts() {
     console.log("🚀 Starting synchronization process...");
 
     const erpProducts = await fetchERPProducts();
-    console.log(`📦 Fetched ${erpProducts.length} products from ERP`);
-
     const easyProducts = await fetchEasyOrderProducts();
-    console.log(`📦 Fetched ${easyProducts.length} products from Easy Order`);
 
     if (!erpProducts.length || !easyProducts.length) {
         console.log("⚠️ Not enough data to compare.");
@@ -147,15 +139,21 @@ async function syncProducts() {
                 );
 
                 if (!matchingEasyVariant) continue;
+
                 const erpQuantity = Math.max(0, Number(erpVariant.quantity));
-                const erpPrice = Number(erpVariant.price);
-                const erpExpense = Number(erpVariant.expense);
+                const erpPrice    = Number(erpVariant.price);
+                const erpExpense  = Number(erpVariant.expense);
 
-                const quantityChanged = erpQuantity !== Number(matchingEasyVariant.quantity);
-                const priceChanged = erpPrice !== Number(matchingEasyVariant.price);
-                const expenseChanged = erpExpense !== Number(matchingEasyVariant.expense);
+                const quantityChanged =
+                    erpQuantity !== Number(matchingEasyVariant.quantity);
 
-                if (quantityChanged || priceChanged || expenseChanged) {
+                const salePriceChanged =
+                    erpPrice !== Number(matchingEasyVariant.sale_price);
+
+                const expenseChanged =
+                    erpExpense !== Number(matchingEasyVariant.expense);
+
+                if (quantityChanged || salePriceChanged || expenseChanged) {
                     if (!updatesMap[easyProduct.id]) {
                         updatesMap[easyProduct.id] = [];
                     }
@@ -163,12 +161,10 @@ async function syncProducts() {
                     updatesMap[easyProduct.id].push({
                         id: matchingEasyVariant.id,
                         quantity: erpQuantity,
-                        price: erpPrice,
-                        expense: erpExpense,
+                        sale_price: erpPrice, // 👈 هنا المهم
+                        expense: erpExpense
                     });
                 }
-
-
             }
         }
     }
@@ -177,7 +173,6 @@ async function syncProducts() {
     console.log(`🔍 Found differences in ${productIdsToUpdate.length} products.`);
 
     for (const productId of productIdsToUpdate) {
-        // console.log(`🔄 Updating Product ID: ${productId}`);
         await updateEasyOrderProduct(productId, updatesMap[productId]);
     }
 
@@ -185,7 +180,7 @@ async function syncProducts() {
 }
 
 // ======================= RUN =======================
-const SYNC_INTERVAL = 20000; // 20 seconds
+const SYNC_INTERVAL = 20000;
 
 async function runContinuousSync() {
     console.log(`⏰ Continuous sync every ${SYNC_INTERVAL / 1000} seconds`);
