@@ -1,5 +1,5 @@
 const axios = require("axios");
-require('dotenv').config();
+require("dotenv").config();
 
 // ======================= CONFIGURATION =======================
 const ERP_API_URL = process.env.ERP_API_URL;
@@ -11,7 +11,7 @@ const EASY_ORDER_API_KEY = process.env.EASY_ORDER_API_KEY;
 async function fetchERPProducts() {
     try {
         const response = await axios.get(ERP_API_URL);
-        return response.data.data || [];
+        return response.data?.data || [];
     } catch (error) {
         console.error("❌ Failed to fetch from ERP:", error.message);
         return [];
@@ -67,29 +67,32 @@ async function fetchEasyOrderProducts() {
     }
 }
 
-
 async function updateEasyOrderProduct(productId, variantsData) {
     try {
         const response = await axios.get(
             `${EASY_ORDER_BASE_URL}/products/${productId}`,
             { headers: { "Api-Key": EASY_ORDER_API_KEY } }
         );
+
         const product = response.data;
+        if (!product?.variants || variantsData.length === 0) return;
 
-        if (product.variants && variantsData.length > 0) {
-            let hasChanges = false;
-            variantsData.forEach(update => {
-                const variant = product.variants.find(v => v.id === update.id);
-                if (variant) {
-                    variant.quantity = update.quantity;
-                    hasChanges = true;
-                }
-            });
+        let hasChanges = false;
 
-            if (!hasChanges) return;
-        }
+        variantsData.forEach(update => {
+            const variant = product.variants.find(v => v.id === update.id);
+            if (!variant) return;
 
-        // 3. إرسال التحديث
+            variant.quantity   = update.quantity;
+            variant.price      = update.price;
+            variant.sale_price = update.sale_price;
+            variant.expense    = update.expense;
+
+            hasChanges = true;
+        });
+
+        if (!hasChanges) return;
+
         await axios.patch(
             `${EASY_ORDER_BASE_URL}/products/${productId}`,
             product,
@@ -97,13 +100,17 @@ async function updateEasyOrderProduct(productId, variantsData) {
                 headers: {
                     "Api-Key": EASY_ORDER_API_KEY,
                     "Content-Type": "application/json"
-                },
+                }
             }
         );
 
-        console.log(`✅ Successfully updated product: ${product.name}`);
+        console.log(`✅ Updated product ${productId}`);
+
     } catch (err) {
-        console.error(`❌ Failed to update product ${productId}:`, err.response?.data?.message || err.message);
+        console.error(
+            `❌ Failed to update product ${productId}:`,
+            err.response?.data || err.message
+        );
     }
 }
 
@@ -118,7 +125,7 @@ async function syncProducts() {
     const easyProducts = await fetchEasyOrderProducts();
     console.log(`📦 Fetched ${easyProducts.length} products from Easy Order`);
 
-    if (erpProducts.length === 0 || easyProducts.length === 0) {
+    if (!erpProducts.length || !easyProducts.length) {
         console.log("⚠️ Not enough data to compare.");
         return;
     }
@@ -135,55 +142,64 @@ async function syncProducts() {
             for (const easyProduct of easyProducts) {
                 if (!easyProduct.variants) continue;
 
-                const matchingEasyVariant = easyProduct.variants.find(ev => ev.taager_code === targetCode);
+                const matchingEasyVariant = easyProduct.variants.find(
+                    ev => ev.taager_code === targetCode
+                );
 
-                if (matchingEasyVariant) {
-                    const newQuantity = parseInt(erpVariant.quantity);
-                    const currentQuantity = parseInt(matchingEasyVariant.quantity);
+                if (!matchingEasyVariant) continue;
 
-                    if (newQuantity !== currentQuantity) {
-                        if (!updatesMap[easyProduct.id]) {
-                            updatesMap[easyProduct.id] = [];
-                        }
+                const quantityChanged =
+                    Number(erpVariant.quantity) !== Number(matchingEasyVariant.quantity);
 
-                        updatesMap[easyProduct.id].push({
-                            id: matchingEasyVariant.id,
-                            quantity: newQuantity
-                        });
+                const priceChanged =
+                    Number(erpVariant.price) !== Number(matchingEasyVariant.price);
+
+                const salePriceChanged =
+                    Number(erpVariant.sale_price) !== Number(matchingEasyVariant.sale_price);
+
+                const expenseChanged =
+                    Number(erpVariant.expense) !== Number(matchingEasyVariant.expense);
+
+                if (quantityChanged || priceChanged || salePriceChanged || expenseChanged) {
+                    if (!updatesMap[easyProduct.id]) {
+                        updatesMap[easyProduct.id] = [];
                     }
+
+                    updatesMap[easyProduct.id].push({
+                        id: matchingEasyVariant.id,
+                        quantity: Number(erpVariant.quantity),
+                        price: Number(erpVariant.price),
+                        sale_price: Number(erpVariant.sale_price),
+                        expense: Number(erpVariant.expense),
+                    });
                 }
             }
         }
     }
 
     const productIdsToUpdate = Object.keys(updatesMap);
-    console.log(`🔍 Found differences in ${productIdsToUpdate.length} products based on code matching.`);
+    console.log(`🔍 Found differences in ${productIdsToUpdate.length} products.`);
 
-    let updatedCount = 0;
     for (const productId of productIdsToUpdate) {
-        console.log(`🔄 Sending updates for Product ID: ${productId} ...`);
+        // console.log(`🔄 Updating Product ID: ${productId}`);
         await updateEasyOrderProduct(productId, updatesMap[productId]);
-        updatedCount++;
     }
 
-    console.log(`🏁 Sync complete. Updated ${updatedCount} products.`);
+    console.log("🏁 Sync complete.");
 }
 
 // ======================= RUN =======================
-const SYNC_INTERVAL = 20000;
+const SYNC_INTERVAL = 20000; // 20 seconds
 
 async function runContinuousSync() {
-    console.log(`⏰ Starting continuous sync (every ${SYNC_INTERVAL / 1000} seconds)...`);
-    
+    console.log(`⏰ Continuous sync every ${SYNC_INTERVAL / 1000} seconds`);
     while (true) {
         try {
             await syncProducts();
         } catch (error) {
-            console.error("❌ Error during sync:", error.message);
+            console.error("❌ Sync error:", error.message);
         }
-        
-        console.log(`⏳ Waiting ${SYNC_INTERVAL / 1000} seconds before next sync...\n`);
-        await new Promise(resolve => setTimeout(resolve, SYNC_INTERVAL));
+        await new Promise(res => setTimeout(res, SYNC_INTERVAL));
     }
 }
 
