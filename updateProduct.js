@@ -63,6 +63,8 @@ async function fetchEasyOrderProducts() {
     }
 }
 
+// ======================= UPDATE PRODUCT =======================
+
 async function updateEasyOrderProduct(productId, variantsData) {
     try {
         const response = await axios.get(
@@ -71,22 +73,36 @@ async function updateEasyOrderProduct(productId, variantsData) {
         );
 
         const product = response.data;
-        if (!product?.variants || !variantsData.length) return;
+        if (!product?.variants?.length) return;
 
         let hasChanges = false;
 
+        // تحديث variants اللي كميتها اتغيرت
         variantsData.forEach(update => {
             const variant = product.variants.find(v => v.id === update.id);
             if (!variant) return;
 
-            variant.quantity   = update.quantity;
-            variant.sale_price = update.sale_price; // 👈 ERP price
-            variant.expense    = update.expense;
+            const newQty = Math.max(0, Number(update.quantity));
 
-            hasChanges = true;
+            if (newQty !== Number(variant.quantity)) {
+                variant.quantity = newQty;
+                hasChanges = true;
+            }
         });
 
-        if (!hasChanges) return;
+        // ✅ إعادة تجميع كل الكميات
+        const totalQuantity = product.variants.reduce((sum, v) => {
+            return sum + Math.max(0, Number(v.quantity || 0));
+        }, 0);
+
+        if (Number(product.quantity) !== totalQuantity) {
+            product.quantity = totalQuantity;
+            hasChanges = true;
+        }
+
+        if (!hasChanges) {
+            return;
+        }
 
         await axios.patch(
             `${EASY_ORDER_BASE_URL}/products/${productId}`,
@@ -99,7 +115,9 @@ async function updateEasyOrderProduct(productId, variantsData) {
             }
         );
 
-        console.log(`✅ Updated product ${productId}`);
+        console.log(
+            `✅ Updated product ${productId} | Total Quantity: ${totalQuantity}`
+        );
 
     } catch (err) {
         console.error(
@@ -141,28 +159,18 @@ async function syncProducts() {
                 if (!matchingEasyVariant) continue;
 
                 const erpQuantity = Math.max(0, Number(erpVariant.quantity));
-                const erpPrice    = Number(erpVariant.price);
-                const erpExpense  = Number(erpVariant.expense);
 
                 const quantityChanged =
                     erpQuantity !== Number(matchingEasyVariant.quantity);
 
-                const salePriceChanged =
-                    erpPrice !== Number(matchingEasyVariant.sale_price);
-
-                const expenseChanged =
-                    erpExpense !== Number(matchingEasyVariant.expense);
-
-                if (quantityChanged || salePriceChanged || expenseChanged) {
+                if (quantityChanged) {
                     if (!updatesMap[easyProduct.id]) {
                         updatesMap[easyProduct.id] = [];
                     }
 
                     updatesMap[easyProduct.id].push({
                         id: matchingEasyVariant.id,
-                        quantity: erpQuantity,
-                        sale_price: erpPrice, // 👈 هنا المهم
-                        expense: erpExpense
+                        quantity: erpQuantity
                     });
                 }
             }
@@ -174,12 +182,16 @@ async function syncProducts() {
 
     for (const productId of productIdsToUpdate) {
         await updateEasyOrderProduct(productId, updatesMap[productId]);
+
+        // 🛡️ حماية من Rate limit
+        await new Promise(res => setTimeout(res, 500));
     }
 
     console.log("🏁 Sync complete.");
 }
 
 // ======================= RUN =======================
+
 const SYNC_INTERVAL = 20000;
 
 async function runContinuousSync() {
