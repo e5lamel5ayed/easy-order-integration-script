@@ -73,34 +73,51 @@ async function updateEasyOrderProduct(productId, variantsData) {
         );
 
         const product = response.data;
-        if (!product?.variants?.length) return;
+        if (!product?.variants || !product.variants.length) return;
 
         let hasChanges = false;
+        let quantityChangedFlag = false;
 
-        // تحديث variants اللي كميتها اتغيرت
-        variantsData.forEach(update => {
-            const variant = product.variants.find(v => v.id === update.id);
-            if (!variant) return;
+        // تحديث الـ variants اللي جاية من ERP
+        if (variantsData?.length) {
+            variantsData.forEach(update => {
+                const variant = product.variants.find(v => v.id === update.id);
+                if (!variant) return;
 
-            const newQty = Math.max(0, Number(update.quantity));
+                const newQty = Math.max(0, Number(update.quantity));
 
-            if (newQty !== Number(variant.quantity)) {
-                variant.quantity = newQty;
+                if (newQty !== Number(variant.quantity)) {
+                    variant.quantity = newQty;
+                    quantityChangedFlag = true;
+                    hasChanges = true;
+                }
+
+                if (Number(update.sale_price) !== Number(variant.sale_price)) {
+                    variant.sale_price = Number(update.sale_price);
+                    hasChanges = true;
+                }
+
+                if (Number(update.expense) !== Number(variant.expense)) {
+                    variant.expense = Number(update.expense);
+                    hasChanges = true;
+                }
+            });
+        }
+
+        // ✅ نجمع كميات الـ variants فقط لو quantity اتغيرت
+        if (quantityChangedFlag) {
+            const totalQuantity = product.variants.reduce((sum, v) => {
+                return sum + Math.max(0, Number(v.quantity || 0));
+            }, 0);
+
+            if (Number(product.quantity) !== totalQuantity) {
+                product.quantity = totalQuantity;
                 hasChanges = true;
             }
-        });
-
-        // ✅ إعادة تجميع كل الكميات
-        const totalQuantity = product.variants.reduce((sum, v) => {
-            return sum + Math.max(0, Number(v.quantity || 0));
-        }, 0);
-
-        if (Number(product.quantity) !== totalQuantity) {
-            product.quantity = totalQuantity;
-            hasChanges = true;
         }
 
         if (!hasChanges) {
+            console.log(`⏭️ No changes for product ${productId}`);
             return;
         }
 
@@ -116,7 +133,8 @@ async function updateEasyOrderProduct(productId, variantsData) {
         );
 
         console.log(
-            `✅ Updated product ${productId} | Total Quantity: ${totalQuantity}`
+            `✅ Updated product ${productId}` +
+            (quantityChangedFlag ? " | Quantity recalculated" : "")
         );
 
     } catch (err) {
@@ -159,18 +177,28 @@ async function syncProducts() {
                 if (!matchingEasyVariant) continue;
 
                 const erpQuantity = Math.max(0, Number(erpVariant.quantity));
+                const erpPrice    = Number(erpVariant.price);
+                const erpExpense  = Number(erpVariant.expense);
 
                 const quantityChanged =
                     erpQuantity !== Number(matchingEasyVariant.quantity);
 
-                if (quantityChanged) {
+                const salePriceChanged =
+                    erpPrice !== Number(matchingEasyVariant.sale_price);
+
+                const expenseChanged =
+                    erpExpense !== Number(matchingEasyVariant.expense);
+
+                if (quantityChanged || salePriceChanged || expenseChanged) {
                     if (!updatesMap[easyProduct.id]) {
                         updatesMap[easyProduct.id] = [];
                     }
 
                     updatesMap[easyProduct.id].push({
                         id: matchingEasyVariant.id,
-                        quantity: erpQuantity
+                        quantity: erpQuantity,
+                        sale_price: erpPrice,
+                        expense: erpExpense
                     });
                 }
             }
@@ -182,9 +210,6 @@ async function syncProducts() {
 
     for (const productId of productIdsToUpdate) {
         await updateEasyOrderProduct(productId, updatesMap[productId]);
-
-        // 🛡️ حماية من Rate limit
-        await new Promise(res => setTimeout(res, 500));
     }
 
     console.log("🏁 Sync complete.");
