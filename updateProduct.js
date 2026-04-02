@@ -60,7 +60,7 @@ async function fetchEasyOrderProducts() {
             error.response?.data || error.message
         );
         return [];
-    }
+    } 
 }
 
 // ======================= UPDATE PRODUCT =======================
@@ -214,21 +214,30 @@ async function syncProducts() {
 
     console.log("🏁 Sync complete.");
 }
-
 // ======================= RUN =======================
 
-const SYNC_INTERVAL = 20000;
+function getMsUntilNextMidnight() {
+    const now = new Date();
+    const nextMidnight = new Date(now);
+    nextMidnight.setDate(now.getDate() + 1);
+    nextMidnight.setHours(0, 0, 0, 0);
+    return nextMidnight - now;
+}
 
-async function runContinuousSync() {
-    console.log(`⏰ Continuous sync every ${SYNC_INTERVAL / 1000} seconds`);
+async function runDailySync() {
+    console.log("⏰ Daily sync scheduled for the start of each new day");
+
     while (true) {
         try {
             await syncProducts();
         } catch (error) {
             console.error("❌ Sync error:", error.message);
         }
-        await new Promise(res => setTimeout(res, SYNC_INTERVAL));
+
+        const waitMs = getMsUntilNextMidnight();
+        console.log(`🕛 Next sync in ${Math.round(waitMs / 1000)} seconds`);
+        await new Promise(resolve => setTimeout(resolve, waitMs));
     }
 }
 
-runContinuousSync();
+runDailySync();
