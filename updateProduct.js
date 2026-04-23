@@ -65,8 +65,10 @@ async function fetchEasyOrderProducts() {
 
 // ======================= UPDATE PRODUCT =======================
 
-async function updateEasyOrderProduct(productId, variantsData) {
+async function updateEasyOrderProduct(productId, variantsData, options = {}) {
     try {
+        const { updateQuantity = true, updatePricing = true } = options;
+
         const response = await axios.get(
             `${EASY_ORDER_BASE_URL}/products/${productId}`,
             { headers: { "Api-Key": EASY_ORDER_API_KEY } }
@@ -84,22 +86,26 @@ async function updateEasyOrderProduct(productId, variantsData) {
                 const variant = product.variants.find(v => v.id === update.id);
                 if (!variant) return;
 
-                const newQty = Math.max(0, Number(update.quantity));
+                if (updateQuantity) {
+                    const newQty = Math.max(0, Number(update.quantity));
 
-                if (newQty !== Number(variant.quantity)) {
-                    variant.quantity = newQty;
-                    quantityChangedFlag = true;
-                    hasChanges = true;
+                    if (newQty !== Number(variant.quantity)) {
+                        variant.quantity = newQty;
+                        quantityChangedFlag = true;
+                        hasChanges = true;
+                    }
                 }
 
-                if (Number(update.sale_price) !== Number(variant.sale_price)) {
-                    variant.sale_price = Number(update.sale_price);
-                    hasChanges = true;
-                }
+                if (updatePricing) {
+                    if (Number(update.sale_price) !== Number(variant.sale_price)) {
+                        variant.sale_price = Number(update.sale_price);
+                        hasChanges = true;
+                    }
 
-                if (Number(update.expense) !== Number(variant.expense)) {
-                    variant.expense = Number(update.expense);
-                    hasChanges = true;
+                    if (Number(update.expense) !== Number(variant.expense)) {
+                        variant.expense = Number(update.expense);
+                        hasChanges = true;
+                    }
                 }
             });
         }
@@ -113,6 +119,35 @@ async function updateEasyOrderProduct(productId, variantsData) {
             if (Number(product.quantity) !== totalQuantity) {
                 product.quantity = totalQuantity;
                 hasChanges = true;
+            }
+        }
+
+        // تحديث سعر البرودكت الرئيسي من أول variant متطابق أثناء تسعير المنتج
+        if (updatePricing && variantsData?.length) {
+            const firstMatchedVariant = product.variants.find(v =>
+                variantsData.some(u => u.id === v.id)
+            );
+
+            if (firstMatchedVariant) {
+                const nextProductPrice = Number(
+                    firstMatchedVariant.price ?? firstMatchedVariant.sale_price
+                );
+                const nextProductSalePrice = Number(
+                    firstMatchedVariant.sale_price ?? firstMatchedVariant.price
+                );
+
+                if (!Number.isNaN(nextProductPrice) && Number(product.price) !== nextProductPrice) {
+                    product.price = nextProductPrice;
+                    hasChanges = true;
+                }
+
+                if (
+                    !Number.isNaN(nextProductSalePrice) &&
+                    Number(product.sale_price) !== nextProductSalePrice
+                ) {
+                    product.sale_price = nextProductSalePrice;
+                    hasChanges = true;
+                }
             }
         }
 
@@ -147,8 +182,11 @@ async function updateEasyOrderProduct(productId, variantsData) {
 
 // ======================= MAIN SYNC FUNCTION =======================
 
-async function syncProducts() {
-    console.log("🚀 Starting synchronization process...");
+async function syncProducts(mode = "all") {
+    const shouldSyncQuantity = mode === "all" || mode === "quantity";
+    const shouldSyncPricing = mode === "all" || mode === "pricing";
+
+    console.log(`🚀 Starting ${mode} synchronization process...`);
 
     const erpProducts = await fetchERPProducts();
     const easyProducts = await fetchEasyOrderProducts();
@@ -181,12 +219,15 @@ async function syncProducts() {
                 const erpExpense  = Number(erpVariant.expense);
 
                 const quantityChanged =
+                    shouldSyncQuantity &&
                     erpQuantity !== Number(matchingEasyVariant.quantity);
 
                 const salePriceChanged =
+                    shouldSyncPricing &&
                     erpPrice !== Number(matchingEasyVariant.sale_price);
 
                 const expenseChanged =
+                    shouldSyncPricing &&
                     erpExpense !== Number(matchingEasyVariant.expense);
 
                 if (quantityChanged || salePriceChanged || expenseChanged) {
@@ -209,10 +250,13 @@ async function syncProducts() {
     console.log(`🔍 Found differences in ${productIdsToUpdate.length} products.`);
 
     for (const productId of productIdsToUpdate) {
-        await updateEasyOrderProduct(productId, updatesMap[productId]);
+        await updateEasyOrderProduct(productId, updatesMap[productId], {
+            updateQuantity: shouldSyncQuantity,
+            updatePricing: shouldSyncPricing
+        });
     }
 
-    console.log("🏁 Sync complete.");
+    console.log(`🏁 ${mode} sync complete.`);
 }
 // ======================= RUN =======================
 
@@ -224,20 +268,47 @@ function getMsUntilNextMidnight() {
     return nextMidnight - now;
 }
 
-async function runDailySync() {
-    console.log("⏰ Daily sync scheduled for the start of each new day");
+function wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function runDailyQuantitySync() {
+    console.log("⏰ Quantity sync scheduled for the start of each new day");
+
+    const initialWaitMs = getMsUntilNextMidnight();
+    console.log(`🕛 First quantity sync in ${Math.round(initialWaitMs / 1000)} seconds`);
+    await wait(initialWaitMs);
 
     while (true) {
         try {
-            await syncProducts();
+            await syncProducts("quantity");
         } catch (error) {
-            console.error("❌ Sync error:", error.message);
+            console.error("❌ Quantity sync error:", error.message);
         }
 
         const waitMs = getMsUntilNextMidnight();
-        console.log(`🕛 Next sync in ${Math.round(waitMs / 1000)} seconds`);
-        await new Promise(resolve => setTimeout(resolve, waitMs));
+        console.log(`🕛 Next quantity sync in ${Math.round(waitMs / 1000)} seconds`);
+        await wait(waitMs);
     }
 }
 
-runDailySync();
+async function runPricingSyncEveryMinute() {
+    console.log("💲 Pricing sync scheduled every 60 seconds");
+
+    while (true) {
+        try {
+            await syncProducts("pricing");
+        } catch (error) {
+            console.error("❌ Pricing sync error:", error.message);
+        }
+
+        await wait(60 * 1000);
+    }
+}
+
+Promise.all([
+    runDailyQuantitySync(),
+    runPricingSyncEveryMinute()
+]).catch(error => {
+    console.error("❌ Scheduler error:", error.message);
+});
