@@ -97,6 +97,11 @@ async function updateEasyOrderProduct(productId, variantsData, options = {}) {
                 }
 
                 if (updatePricing) {
+                    if (Number(update.price) !== Number(variant.price)) {
+                        variant.price = Number(update.price);
+                        hasChanges = true;
+                    }
+
                     if (Number(update.sale_price) !== Number(variant.sale_price)) {
                         variant.sale_price = Number(update.sale_price);
                         hasChanges = true;
@@ -129,12 +134,8 @@ async function updateEasyOrderProduct(productId, variantsData, options = {}) {
             );
 
             if (firstMatchedVariant) {
-                const nextProductPrice = Number(
-                    firstMatchedVariant.price ?? firstMatchedVariant.sale_price
-                );
-                const nextProductSalePrice = Number(
-                    firstMatchedVariant.sale_price ?? firstMatchedVariant.price
-                );
+                const nextProductPrice = Number(firstMatchedVariant.price);
+                const nextProductSalePrice = Number(firstMatchedVariant.sale_price);
 
                 if (!Number.isNaN(nextProductPrice) && Number(product.price) !== nextProductPrice) {
                     product.price = nextProductPrice;
@@ -216,29 +217,35 @@ async function syncProducts(mode = "all") {
 
                 const erpQuantity = Math.max(0, Number(erpVariant.quantity));
                 const erpPrice    = Number(erpVariant.price);
+                const erpSalePrice = Number(erpVariant.sale_price);
                 const erpExpense  = Number(erpVariant.expense);
 
                 const quantityChanged =
                     shouldSyncQuantity &&
                     erpQuantity !== Number(matchingEasyVariant.quantity);
 
+                const priceChanged =
+                    shouldSyncPricing &&
+                    erpPrice !== Number(matchingEasyVariant.price);
+
                 const salePriceChanged =
                     shouldSyncPricing &&
-                    erpPrice !== Number(matchingEasyVariant.sale_price);
+                    erpSalePrice !== Number(matchingEasyVariant.sale_price);
 
                 const expenseChanged =
                     shouldSyncPricing &&
                     erpExpense !== Number(matchingEasyVariant.expense);
 
-                if (quantityChanged || salePriceChanged || expenseChanged) {
+                if (quantityChanged || priceChanged || salePriceChanged || expenseChanged) {
                     if (!updatesMap[easyProduct.id]) {
                         updatesMap[easyProduct.id] = [];
                     }
 
                     updatesMap[easyProduct.id].push({
                         id: matchingEasyVariant.id,
+                        price: erpPrice,
                         quantity: erpQuantity,
-                        sale_price: erpPrice,
+                        sale_price: erpSalePrice,
                         expense: erpExpense
                     });
                 }
@@ -272,12 +279,11 @@ function wait(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function runDailyQuantitySync() {
-    console.log("⏰ Quantity sync scheduled for the start of each new day");
+async function runQuantitySyncAtMidnight() {
+    console.log("⏰ Quantity sync scheduled once at start of each day (midnight)");
 
-    const initialWaitMs = getMsUntilNextMidnight();
-    console.log(`🕛 First quantity sync in ${Math.round(initialWaitMs / 1000)} seconds`);
-    await wait(initialWaitMs);
+    // wait until the next midnight, then run daily
+    await wait(getMsUntilNextMidnight());
 
     while (true) {
         try {
@@ -286,9 +292,8 @@ async function runDailyQuantitySync() {
             console.error("❌ Quantity sync error:", error.message);
         }
 
-        const waitMs = getMsUntilNextMidnight();
-        console.log(`🕛 Next quantity sync in ${Math.round(waitMs / 1000)} seconds`);
-        await wait(waitMs);
+        // wait 24 hours until next run
+        await wait(24 * 60 * 60 * 1000);
     }
 }
 
@@ -307,7 +312,7 @@ async function runPricingSyncEveryMinute() {
 }
 
 Promise.all([
-    runDailyQuantitySync(),
+    runQuantitySyncAtMidnight(),
     runPricingSyncEveryMinute()
 ]).catch(error => {
     console.error("❌ Scheduler error:", error.message);
